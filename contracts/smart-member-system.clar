@@ -317,3 +317,122 @@
   )
 )
 
+;; Add a function to allow members to update their nickname
+(define-public (update-nickname (member-id uint) (new-nickname (string-ascii 50)))
+  (let
+    (
+      (member-data (unwrap! (map-get? member-profiles { member-id: member-id }) ERR-NOT-FOUND))
+    )
+    ;; Validation checks
+    (asserts! (member-exists? member-id) ERR-NOT-FOUND)
+    (asserts! (is-eq (get wallet-address member-data) tx-sender) ERR-FORBIDDEN)
+
+    ;; Update nickname
+    (map-set member-profiles
+      { member-id: member-id }
+      (merge member-data { nickname: new-nickname })
+    )
+    (ok true)
+  )
+)
+
+;; ===============
+;; Refactor - Simplify Update Member Preferences Logic
+;; ===============
+;; This refactor simplifies the logic for updating member preferences and reduces code duplication.
+(define-public (simplified-update-member-preferences (member-id uint) (new-preferences (list 5 (string-ascii 30))))
+  (begin
+    (asserts! (member-exists? member-id) ERR-NOT-FOUND)
+    (asserts! (are-preferences-valid? new-preferences) ERR-INVALID-INPUT)
+    (map-set member-profiles
+      { member-id: member-id }
+      (merge (unwrap! (map-get? member-profiles { member-id: member-id }) ERR-NOT-FOUND) { preferences: new-preferences })
+    )
+    (ok "Preferences updated")
+  )
+)
+
+;; This function limits profile access to certain roles or members only
+(define-public (limit-profile-access (member-id uint) (address principal))
+  (let
+    (
+      (member-data (unwrap! (map-get? member-profiles { member-id: member-id }) ERR-NOT-FOUND))
+    )
+    ;; Check if the address is allowed to access the profile
+    (asserts! (is-eq (get wallet-address member-data) address) ERR-FORBIDDEN)
+    (ok true)
+  )
+)
+
+;; Enhance error handling for profile updates
+(define-public (update-member-profile-safe (member-id uint) (new-nickname (string-ascii 50)) (new-bio (string-ascii 160)) (new-preferences (list 5 (string-ascii 30))))
+  (let
+    (
+      (member-data (unwrap! (map-get? member-profiles { member-id: member-id }) ERR-NOT-FOUND))
+    )
+    ;; Validation checks
+    (asserts! (member-exists? member-id) ERR-NOT-FOUND)
+    (asserts! (is-eq (get wallet-address member-data) tx-sender) ERR-FORBIDDEN)
+    (asserts! (> (len new-nickname) u0) ERR-INVALID-INPUT)
+    (asserts! (< (len new-nickname) u51) ERR-INVALID-INPUT)
+    (asserts! (are-preferences-valid? new-preferences) ERR-INVALID-INPUT)
+
+    ;; Update profile
+    (map-set member-profiles
+      { member-id: member-id }
+      (merge member-data { nickname: new-nickname, bio-text: new-bio, preferences: new-preferences })
+    )
+    (ok true)
+  )
+)
+
+;; Verify the ownership of a member's profile
+(define-public (verify-profile-ownership (member-id uint) (owner-address principal))
+  (let
+    (
+      (member-data (unwrap! (map-get? member-profiles { member-id: member-id }) ERR-NOT-FOUND))
+    )
+    (ok (is-eq owner-address (get wallet-address member-data)))
+  )
+)
+
+;; Map to store member activity timestamps
+(define-map member-activity-log
+  { member-id: uint }
+  {
+    last-login: uint,
+    total-logins: uint,
+    last-action: (string-ascii 50)
+  }
+)
+
+;; Record member login activity
+(define-public (record-member-login (member-id uint))
+  (let
+    (
+      (current-log (default-to 
+        { last-login: u0, total-logins: u0, last-action: "None" }
+        (map-get? member-activity-log { member-id: member-id })))
+    )
+    (asserts! (member-exists? member-id) ERR-NOT-FOUND)
+    (map-set member-activity-log
+      { member-id: member-id }
+      {
+        last-login: block-height,
+        total-logins: (+ (get total-logins current-log) u1),
+        last-action: "login"
+      }
+    )
+    (ok true)
+  )
+)
+
+;; Map to store member reputation scores
+(define-map member-reputation
+  { member-id: uint }
+  {
+    score: uint,
+    endorsements: uint,
+    last-updated: uint
+  }
+)
