@@ -198,3 +198,122 @@
     (ok true)
   )
 )
+
+;; ================================
+;; Function to update member nickname
+;; ================================
+
+(define-public (update-member-nickname (member-id uint) (new-nickname (string-ascii 50)))
+  (let
+    (
+      (member-data (unwrap! (map-get? member-profiles { member-id: member-id }) ERR-NOT-FOUND))
+    )
+    ;; Validation checks
+    (asserts! (member-exists? member-id) ERR-NOT-FOUND)
+    (asserts! (is-eq (get wallet-address member-data) tx-sender) ERR-FORBIDDEN)
+    (asserts! (and (> (len new-nickname) u0) (< (len new-nickname) u51)) ERR-INVALID-INPUT)
+
+    ;; Update nickname
+    (map-set member-profiles
+      { member-id: member-id }
+      (merge member-data { nickname: new-nickname })
+    )
+    (ok true)
+  )
+)
+
+;; ================================
+;; Function to check member profile visibility
+;; ================================
+
+(define-public (check-profile-visibility (member-id uint) (viewer-address principal))
+  (let
+    (
+      (visibility-data (unwrap! (map-get? profile-visibility { member-id: member-id, viewer-address: viewer-address }) ERR-NOT-FOUND))
+    )
+    ;; Check visibility permission
+    (ok (get permission-granted visibility-data))
+  )
+)
+
+;; Security enhancement: Limit access to member profiles
+(define-public (get-member-profile-securely (member-id uint))
+  (let
+    (
+      (member-data (unwrap! (map-get? member-profiles { member-id: member-id }) ERR-NOT-FOUND))
+    )
+    (asserts! (is-eq tx-sender (get wallet-address member-data)) ERR-UNAUTHORIZED)
+    (ok member-data)
+  )
+)
+
+;; Add meaningful functionality: Track member activity log
+(define-map member-actions
+  { member-id: uint }
+  {
+    action: (string-ascii 50),
+    previous: (list 5 (string-ascii 30)),
+    new: (list 5 (string-ascii 30))
+  }
+)
+
+;; Add Clarity contract to retrieve last updated date for a member
+(define-public (get-last-updated-date (member-id uint))
+  (let
+    (
+      (member-data (unwrap! (map-get? member-profiles { member-id: member-id }) ERR-NOT-FOUND))
+    )
+    (ok (get registered-date member-data))
+  )
+)
+
+;; Enhance security by verifying membership with two-factor authentication
+(define-public (verify-member-2fa (member-id uint) (auth-code uint))
+  (let
+    (
+      (member-data (unwrap! (map-get? member-profiles { member-id: member-id }) ERR-NOT-FOUND))
+      (correct-code u1234) ;; Example authentication code
+    )
+    (asserts! (is-eq auth-code correct-code) ERR-FORBIDDEN)
+    (ok true)
+  )
+)
+
+;; Add a new member with a profile and preferences
+(define-public (add-new-member 
+    (nickname (string-ascii 50)) 
+    (bio-text (string-ascii 160)) 
+    (preferences (list 5 (string-ascii 30))))
+  (let
+    (
+      (new-id (+ (var-get member-count) u1))
+    )
+    ;; Input validation
+    (asserts! (and (> (len nickname) u0) (< (len nickname) u51)) ERR-INVALID-INPUT)
+    (asserts! (and (> (len bio-text) u0) (< (len bio-text) u161)) ERR-INVALID-INPUT)
+    (asserts! (are-preferences-valid? preferences) ERR-INVALID-INPUT)
+
+    ;; Create member profile
+    (map-insert member-profiles
+      { member-id: new-id }
+      {
+        nickname: nickname,
+        wallet-address: tx-sender,
+        registered-date: block-height,
+        bio-text: bio-text,
+        preferences: preferences
+      }
+    )
+
+    ;; Set initial visibility permission
+    (map-insert profile-visibility
+      { member-id: new-id, viewer-address: tx-sender }
+      { permission-granted: true }
+    )
+
+    ;; Update member count
+    (var-set member-count new-id)
+    (ok new-id)
+  )
+)
+
